@@ -1,7 +1,33 @@
+# -*- coding: binary -*-
 require 'rex/text'
 
 describe Rex::Text do
   context "Class methods" do
+
+    context ".to_ebcdic" do
+      it "should convert ASCII to EBCDIC (both US standards)" do
+        described_class.to_ebcdic("Hello, World!").should eq("\xc8\x85\x93\x93\x96\x6b\x40\xe6\x96\x99\x93\x84\x5a")
+      end
+      it "should raise on non-convertable characters" do
+        lambda {described_class.to_ebcdic("\xff\xfe")}.should raise_exception(described_class::IllegalSequence)
+      end
+    end
+
+    context ".from_ebcdic" do
+      it "should convert EBCDIC to ASCII (both US standards)" do
+        described_class.from_ebcdic("\xc8\x85\x93\x93\x96\x6b\x40\xe6\x96\x99\x93\x84\x5a").should eq("Hello, World!")
+      end
+      it "should raise on non-convertable characters" do
+        lambda {described_class.from_ebcdic("\xff\xfe")}.should raise_exception(described_class::IllegalSequence)
+      end
+    end
+
+    context ".to_utf8" do
+      it "should convert a string to UTF-8, skipping badchars" do
+        described_class.to_utf8("Hello, world!").should eq("Hello, world!")
+        described_class.to_utf8("Oh no, \xff\xfe can't convert!").should eq("Oh no,  can't convert!")
+      end
+    end
 
     context ".to_octal" do
       it "should convert all chars 00 through ff" do
@@ -68,6 +94,62 @@ describe Rex::Text do
         gzip << "\x00" * 6
         gzip << "\xcb\xc8\x54\xc8\xcd\xcf\x05\x00\x68\xa4\x1c\xf0\x06\x00\x00\x00"
         described_class.ungzip(gzip).should eq("hi mom")
+      end
+    end
+
+    context ".rand_surname" do
+      it "should return a random surname" do
+        described_class::Surnames.should include(described_class.rand_surname)
+      end
+    end
+
+    context ".rand_name" do
+      it "should return a random name" do
+        names = described_class::Names_Female + described_class::Names_Male
+        names.should include(described_class.rand_name)
+      end
+    end
+
+    context ".rand_name_female" do
+      it "should return a random female name" do
+        described_class::Names_Female.should include(described_class.rand_name_female)
+      end
+    end
+
+    context ".rand_name_male" do
+      it "should return a random male name" do
+        described_class::Names_Male.should include(described_class.rand_name_male)
+      end
+    end
+
+    context ".rand_mail_address" do
+      it "should return a random mail address" do
+        names = described_class::Names_Female + described_class::Names_Male
+        surnames = described_class::Surnames
+        tlds = described_class::TLDs
+
+        # XXX: This is kinda dirty
+        mail_address = described_class.rand_mail_address.split("@").map { |x| x.split(".") }
+        name, surname = mail_address.first.first, mail_address.first.last
+        domain, tld = "example", mail_address.last.last # Poor man's stubbing to preserve TLD
+
+        names.should include(name)
+        surnames.should include(surname)
+        domain.should eq("example")
+        tlds.should include(tld)
+      end
+    end
+
+    context ".randomize_space" do
+      let (:sample_text) { "The quick brown sploit jumped over the lazy A/V" }
+      let (:spaced_text) { described_class.randomize_space(sample_text) }
+      it "should return a string with at least one new space characater" do
+        spaced_text.should match /[\x09\x0d\x0a]/
+      end
+
+      it "should not otherwise be mangled" do
+        normalized_text = spaced_text.gsub(/[\x20\x09\x0d\x0a]+/m, " ")
+        normalized_text.should eq(sample_text)
       end
     end
 

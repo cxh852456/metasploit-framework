@@ -1,5 +1,5 @@
 ##
-# This module requires Metasploit: http//metasploit.com/download
+# This module requires Metasploit: http://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
@@ -12,6 +12,9 @@ class Metasploit3 < Msf::Auxiliary
   # Scanner mixin should be near last
   include Msf::Auxiliary::Scanner
   include Msf::Auxiliary::Report
+  include Msf::Module::Deprecated
+
+  deprecated(Date.new(2015,7,21), 'auxiliary/scanner/vmware/vmware_server_dir_trav')
 
   def initialize
     super(

