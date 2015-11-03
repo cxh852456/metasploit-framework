@@ -15,7 +15,7 @@ class Metasploit3 < Msf::Auxiliary
     super(update_info(info,
       'Name'        => 'MS15-034 HTTP Protocol Stack Request Handling HTTP.SYS Memory Information Disclosure',
       'Description' => %q{
-        Dumps memory contents using a crafted Range header. Affects only
+        This module dumps memory contents using a crafted Range header and affects only
         Windows 8.1, Server 2012, and Server 2012R2. Note that if the target
         is running in VMware Workstation, this module has a high likelihood
         of resulting in BSOD; however, VMware ESX and non-virtualized hosts
@@ -88,9 +88,8 @@ class Metasploit3 < Msf::Auxiliary
         }
       )
 
-      vmessage = "#{peer} - Checking #{uri} [#{res.code}]"
-
       if res && res.body.include?('Requested Range Not Satisfiable')
+        vmessage = "#{peer} - Checking #{uri} [#{res.code}]"
         vprint_status("#{vmessage} - Vulnerable")
 
         # Save the file that we want to use for the information leak
